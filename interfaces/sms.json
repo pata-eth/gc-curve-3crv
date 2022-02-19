@@ -1,0 +1,1 @@
+[{"type":"constructor","stateMutability":"nonpayable","inputs":[{"type":"address","name":"_singleton","internalType":"address"}]},{"type":"fallback","stateMutability":"payable"}]

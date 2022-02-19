@@ -53,7 +53,7 @@ abstract contract StrategyCurveBase is BaseStrategy {
     uint256 internal constant FEE_DENOMINATOR = 10000; // this means all of our fee values are in basis points
 
     IERC20 public constant crv =
-        IERC20(0x712b3d230f3c1c19db860d80619288b1f0bdd0bd);
+        IERC20(0x712b3d230F3C1c19db860d80619288b1F0BDd0Bd);
     IERC20 public constant gno =
         IERC20(0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb);
 
@@ -192,7 +192,7 @@ contract StrategyCurveTricrypto is StrategyCurveBase {
     {
         // You can set these parameters on deployment to whatever you want
         maxReportDelay = 2 days; // 2 days in seconds
-        healthCheck = 0xf13Cd6887C62B5beC145e30c38c4938c5E627fe0; // health.ychad.eth //TODO: WE NEED TO CHANGE THIS
+        healthCheck = 0xE8228A2E7102ce51Bb73115e2964A233248398B9; // health.ychad.eth
 
         // these are our standard approvals. want = Curve LP token
         address honeyswap = 0x1C232F01118CB8B424793ae03F870aa7D0ac7f77;
@@ -310,7 +310,7 @@ contract StrategyCurveTricrypto is StrategyCurveBase {
         } else {
             address[] memory tokenPath = new address[](3);
             tokenPath[0] = address(token);
-            tokenPath[1] = address(xdai);
+            tokenPath[1] = address(wxdai);
             tokenPath[2] = address(targetToken);
             IUniswapV2Router02(router).swapExactTokensForTokens(
                 _amount,
@@ -373,16 +373,16 @@ contract StrategyCurveTricrypto is StrategyCurveBase {
         }
     }
 
-    // spookyswap generally has better liquidity. if this changes, we can use spiritswap.
-    function setUseBaoSwap(bool useSpooky) external onlyAuthorized {
-        if (useSpooky) {
-            router = IUniswapV2Router02(
-                0x6093AeBAC87d62b1A5a4cEec91204e35020E38bE
-            ); // spookyswap's router
-        } else {
+    // Honeyswap generally has better liquidity. if this changes, we can use Baoswap.
+    function setUseHoneySwap(bool useHoney) external onlyAuthorized {
+        if (useHoney) {
             router = IUniswapV2Router02(
                 0x1C232F01118CB8B424793ae03F870aa7D0ac7f77
-            ); // spiritswap router
+            ); // Honeyswap's router
+        } else {
+            router = IUniswapV2Router02(
+                0x6093AeBAC87d62b1A5a4cEec91204e35020E38bE
+            ); // Baoswap router
         }
     }
 }
