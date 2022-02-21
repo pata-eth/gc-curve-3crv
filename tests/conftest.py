@@ -1,5 +1,5 @@
 import pytest
-from brownie import config, Wei, Contract
+from brownie import config, Wei, Contract, interface
 
 # Snapshots the chain before each test and reverts after test completion.
 @pytest.fixture(autouse=True)
@@ -11,14 +11,14 @@ def isolation(fn_isolation):
 def whale(accounts):
     # Totally in it for the tech
     # Update this with a large holder of your want token (the largest EOA holder of LP)
-    whale = accounts.at("0x4d51B782DA9e2cD073916bd4e9eC6d06916B049e", force=True)
+    whale = accounts.at("0x78CF256256C8089d68Cde634Cf7cDEFb39286470", force=True)
     yield whale
 
 
 # this is the amount of funds we have our whale deposit. adjust this as needed based on their wallet balance
 @pytest.fixture(scope="module")
 def amount():
-    amount = 50e18
+    amount = 10_000 * 1e18
     yield amount
 
 
@@ -35,35 +35,35 @@ def strategy_name():
 
 @pytest.fixture(scope="function")
 def voter():
-    yield Contract("0x72a34AbafAB09b15E7191822A679f28E067C4a16")
+    yield interface.sms("0xFB4464a18d18f3FF439680BBbCE659dB2806A187")
 
 
 @pytest.fixture(scope="function")
 def crv():
-    yield Contract("0x1E4F97b9f9F913c46F1632781732927B9019C68b")
+    yield interface.crvToken("0x712b3d230F3C1c19db860d80619288b1F0BDd0Bd")
 
 
 @pytest.fixture(scope="module")
 def other_vault_strategy():
-    yield Contract("0xfF8bb7261E4D51678cB403092Ae219bbEC52aa51")
+    yield Contract("0x0000000000000000000000000000000000000000")
 
 
 @pytest.fixture(scope="module")
 def farmed():
-    yield Contract("0x7d016eec9c25232b01F23EF992D98ca97fc2AF5a")
+    yield interface.gnoToken("0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb")#gno
 
 
 @pytest.fixture(scope="module")
 def healthCheck():
-    yield Contract("0xf13Cd6887C62B5beC145e30c38c4938c5E627fe0")
+    yield interface.CommonHealthCheck("0xE8228A2E7102ce51Bb73115e2964A233248398B9")
 
 
 # Define relevant tokens and contracts in this section
 @pytest.fixture(scope="module")
 def token():
     # this should be the address of the ERC-20 used by the strategy/vault
-    token_address = "0x58e57cA18B7A47112b877E31929798Cd3D703b0f"
-    yield Contract(token_address)
+    token_address = "0x1337BedC9D22ecbe766dF105c9623922A27963EC"
+    yield interface.crvPoolToken(token_address)
 
 
 # zero address
@@ -77,14 +77,14 @@ def zero_address():
 @pytest.fixture(scope="module")
 def gauge():
     # this should be the address of the convex deposit token
-    gauge = "0x00702BbDEaD24C40647f235F15971dB0867F6bdB"
-    yield Contract(gauge)
+    gauge = "0x78CF256256C8089d68Cde634Cf7cDEFb39286470"
+    yield interface.crvGauge(gauge)
 
 
 # curve deposit pool
 @pytest.fixture(scope="module")
 def pool():
-    poolAddress = Contract("0x3a1659Ddcf2339Be3aeA159cA010979FB49155FF")
+    poolAddress = interface.crvSwap("0x7f90122BF0700F9E7e1F688fe926940E8839F353")
     yield poolAddress
 
 
@@ -93,23 +93,23 @@ def pool():
 # normal gov is ychad, 0xFEB4acf3df3cDEA7399794D0869ef76A6EfAff52
 @pytest.fixture(scope="module")
 def gov(accounts):
-    yield accounts.at("0xC0E2830724C946a6748dDFE09753613cd38f6767", force=True)
+    yield accounts.at("0x22eAe41c7Da367b9a15e942EB6227DF849Bb498C", force=True)
 
 
 @pytest.fixture(scope="module")
 def strategist_ms(accounts):
     # like governance, but better
-    yield accounts.at("0x72a34AbafAB09b15E7191822A679f28E067C4a16", force=True)
+    yield accounts.at("0xFB4464a18d18f3FF439680BBbCE659dB2806A187", force=True)
 
 
 @pytest.fixture(scope="module")
 def keeper(accounts):
-    yield accounts.at("0xBedf3Cf16ba1FcE6c3B751903Cf77E51d51E05b8", force=True)
+    yield accounts.at("0xC27DdC26F48724AD90E4d152940e4981af7Ed50d", force=True)
 
 
 @pytest.fixture(scope="module")
 def rewards(accounts):
-    yield accounts.at("0xBedf3Cf16ba1FcE6c3B751903Cf77E51d51E05b8", force=True)
+    yield accounts.at("0xC1c734c36a1Fb28502c48239995FC2b2d0031f81", force=True)
 
 
 @pytest.fixture(scope="module")
@@ -124,7 +124,7 @@ def management(accounts):
 
 @pytest.fixture(scope="module")
 def strategist(accounts):
-    yield accounts.at("0xBedf3Cf16ba1FcE6c3B751903Cf77E51d51E05b8", force=True)
+    yield accounts.at("0xC1c734c36a1Fb28502c48239995FC2b2d0031f81", force=True)
 
 
 # # list any existing strategies here
