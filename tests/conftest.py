@@ -11,21 +11,28 @@ def isolation(fn_isolation):
 def whale(accounts):
     # Totally in it for the tech
     # Update this with a large holder of your want token (the largest EOA holder of LP)
-    whale = accounts.at("0x78CF256256C8089d68Cde634Cf7cDEFb39286470", force=True)
+    whale = accounts.at("0x3eA858248dB056c8Be3844323Bff9e3F5F1FE695", force=True)
+    yield whale
+
+@pytest.fixture(scope="module")
+def xdai_whale(accounts):
+    # Totally in it for the tech
+    # Update this with a large holder of your want token (the largest EOA holder of LP)
+    whale = accounts.at("0x9fc062032d4F2Fe7dAA601bd8B06C45F9c8f17Be", force=True)
     yield whale
 
 
 # this is the amount of funds we have our whale deposit. adjust this as needed based on their wallet balance
 @pytest.fixture(scope="module")
 def amount():
-    amount = 10_000 * 1e18
+    amount = 50_000 * 1e18
     yield amount
 
 
 # this is the name we want to give our strategy
 @pytest.fixture(scope="module")
 def strategy_name():
-    strategy_name = "StrategyCurveTricrypto"
+    strategy_name = "StrategyCurve3crv"
     yield strategy_name
 
 
@@ -45,7 +52,7 @@ def crv():
 
 @pytest.fixture(scope="module")
 def other_vault_strategy():
-    yield Contract("0x0000000000000000000000000000000000000000")
+    yield interface.yvvault("0x7d86C052b20bA21b2E29a7D6cc1D2915F138c53a")
 
 
 @pytest.fixture(scope="module")
@@ -124,7 +131,8 @@ def management(accounts):
 
 @pytest.fixture(scope="module")
 def strategist(accounts):
-    yield accounts.at("0xC1c734c36a1Fb28502c48239995FC2b2d0031f81", force=True)
+    strategist = accounts.at("0xC1c734c36a1Fb28502c48239995FC2b2d0031f81", force=True)
+    yield strategist
 
 
 # # list any existing strategies here
@@ -135,10 +143,11 @@ def strategist(accounts):
 
 # use this if you need to deploy the vault
 @pytest.fixture(scope="function")
-def vault(pm, gov, rewards, guardian, management, token, chain):
+def vault(pm, gov, rewards, guardian, management, token, chain, xdai_whale):
     Vault = pm(config["dependencies"][0]).Vault
+    xdai_whale.transfer(gov, "1 ether")
     vault = guardian.deploy(Vault)
-    vault.initialize(token, gov, rewards, "", "", guardian)
+    vault.initialize(token, gov, rewards, "", "", guardian, {'from':gov})
     vault.setDepositLimit(2 ** 256 - 1, {"from": gov})
     vault.setManagement(management, {"from": gov})
     chain.sleep(1)
@@ -155,7 +164,7 @@ def vault(pm, gov, rewards, guardian, management, token, chain):
 # replace the first value with the name of your strategy
 @pytest.fixture(scope="function")
 def strategy(
-    StrategyCurveTricrypto,
+    StrategyCurve3crv,
     strategist,
     keeper,
     vault,
@@ -168,13 +177,17 @@ def strategy(
     strategy_name,
     gauge,
     strategist_ms,
+    xdai_whale
 ):
     # make sure to include all constructor parameters needed here
+    xdai_whale.transfer(strategist, "1 ether")
+    xdai_whale.transfer(strategist_ms, "1 ether")
     strategy = strategist.deploy(
-        StrategyCurveTricrypto,
+        StrategyCurve3crv,
         vault,
         strategy_name,
     )
+
     strategy.setKeeper(keeper, {"from": gov})
     # set our management fee to zero so it doesn't mess with our profit checking
     vault.setManagementFee(0, {"from": gov})
@@ -182,8 +195,7 @@ def strategy(
     vault.addStrategy(strategy, 10_000, 0, 2 ** 256 - 1, 1_000, {"from": gov})
     strategy.setHealthCheck(healthCheck, {"from": gov})
     strategy.setDoHealthCheck(True, {"from": gov})
-    chain.sleep(1)
-    strategy.harvest({"from": gov})
+    chain.mine(1)
     chain.sleep(1)
     yield strategy
 

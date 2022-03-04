@@ -70,7 +70,7 @@ def test_emergency_exit_with_profit(
     chain.sleep(1)
 
     # set emergency and exit, then confirm that the strategy has no funds
-    donation = amount
+    donation = token.balanceOf(whale)
     token.transfer(strategy, donation, {"from": whale})
     strategy.setDoHealthCheck(False, {"from": gov})
     strategy.setEmergencyExit({"from": gov})

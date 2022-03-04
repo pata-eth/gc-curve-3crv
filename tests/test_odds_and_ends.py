@@ -15,7 +15,7 @@ def test_odds_and_ends(
     strategist_ms,
     voter,
     gauge,
-    StrategyCurveTricrypto,
+    StrategyCurve3crv,
     amount,
     pool,
     strategy_name,
@@ -57,7 +57,7 @@ def test_odds_and_ends(
     # we can try to migrate too, lol
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurveTricrypto,
+        StrategyCurve3crv,
         vault,
         strategy_name,
     )
@@ -144,7 +144,7 @@ def test_odds_and_ends_2(
 
 
 def test_odds_and_ends_migration(
-    StrategyCurveTricrypto,
+    StrategyCurve3crv,
     gov,
     token,
     vault,
@@ -165,11 +165,11 @@ def test_odds_and_ends_migration(
     vault.deposit(amount, {"from": whale})
     chain.sleep(1)
     strategy.harvest({"from": gov})
-    chain.sleep(1)
+    chain.mine(1)
 
     # deploy our new strategy
     new_strategy = strategist.deploy(
-        StrategyCurveTricrypto,
+        StrategyCurve3crv,
         vault,
         strategy_name,
     )
@@ -181,9 +181,10 @@ def test_odds_and_ends_migration(
     # print("\nShould we harvest? Should be False.", tx)
     # assert tx == False
 
-    # sleep for a dau
+    # sleep for a day
     chain.sleep(86400)
 
+    # assert False
     # migrate our old strategy
     vault.migrateStrategy(strategy, new_strategy, {"from": gov})
 
@@ -442,6 +443,8 @@ def test_odds_and_ends_weird_amounts(
     ## deposit to the vault after approving
     token.approve(vault, 2 ** 256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
+    chain.mine(1)
+    chain.sleep(1)
     strategy.harvest({"from": gov})
 
     # switch to DAI, want to not have any profit tho

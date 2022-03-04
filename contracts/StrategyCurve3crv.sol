@@ -163,7 +163,7 @@ abstract contract StrategyCurveBase is BaseStrategy {
     }
 }
 
-contract StrategyCurveTricrypto is StrategyCurveBase {
+contract StrategyCurve3crv is StrategyCurveBase {
     /* ========== STATE VARIABLES ========== */
     // these will likely change across different wants.
 
@@ -247,7 +247,7 @@ contract StrategyCurveTricrypto is StrategyCurveBase {
                 _sellToken(address(crv), crvBalance);
             }
         }
-        // sell WFTM if we have any
+        // sell GNO if we have any
         if (gnoBalance > 0) {
             _sellToken(address(gno), gnoBalance);
         }
@@ -296,23 +296,11 @@ contract StrategyCurveTricrypto is StrategyCurveBase {
 
     // Sells our CRV or GNO for our target token
     function _sellToken(address token, uint256 _amount) internal {
-        if (token == address(gno)) {
+        if (token != address(targetToken)) {
             address[] memory tokenPath = new address[](2);
-            tokenPath[0] = address(gno);
-            tokenPath[1] = address(targetToken);
-            IUniswapV2Router02(router).swapExactTokensForTokens(
-                _amount,
-                uint256(0),
-                tokenPath,
-                address(this),
-                block.timestamp
-            );
-        } else {
-            address[] memory tokenPath = new address[](3);
             tokenPath[0] = address(token);
-            tokenPath[1] = address(wxdai);
-            tokenPath[2] = address(targetToken);
-            IUniswapV2Router02(router).swapExactTokensForTokens(
+            tokenPath[1] = address(targetToken);
+            router.swapExactTokensForTokens(
                 _amount,
                 uint256(0),
                 tokenPath,
@@ -384,5 +372,11 @@ contract StrategyCurveTricrypto is StrategyCurveBase {
                 0x6093AeBAC87d62b1A5a4cEec91204e35020E38bE
             ); // Baoswap router
         }
+    }
+
+    // ERC-677 compatibility
+    function onTokenTransfer(address from, uint256 amount, bytes memory data) public returns (bool success) {
+        //TODO: do nothing
+        return true;
     }
 }
