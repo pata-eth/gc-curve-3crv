@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from brownie import Strategy, accounts, config, network, project, web3
+from brownie import StrategyCurve3crv, accounts, config, network, project, web3, interface
 from eth_utils import is_checksum_address
 import click
 
@@ -56,3 +56,33 @@ def main():
         return
 
     strategy = Strategy.deploy(vault, {"from": dev}, publish_source=publish_source)
+
+
+def create_3crv_experimental_vault():
+    dev = accounts.load(click.prompt("Account", type=click.Choice(accounts.load())))
+    safe = ApeSafe("0xFB4464a18d18f3FF439680BBbCE659dB2806A187")
+    registry = safe.contract("0xe2F12ebBa58CAf63fcFc0e8ab5A61b145bBA3462")
+    gDaddy = safe.contract("0x22eAe41c7Da367b9a15e942EB6227DF849Bb498C")
+
+    yv3CRV_address = registry.newExperimentalVault(
+        strat,
+        gDaddy.address, # governance: ybrain.chad.eth
+        safe.address, # guardian: dev.ychad.eth
+        safe.address, # rewards: treasury.ychad.eth
+        "Curve 3crv", # name
+        "yvCurve-3pool", # symbol
+    {'from':dev}).return_value
+
+    yv3Crv = interface.yvvault(yv3CRV_address)
+    yv3Crv.setHealthCheck("0xE8228A2E7102ce51Bb73115e2964A233248398B9")
+    yv3Crv.setManagement(safe)
+    yv3Crv.setDepositLimit(50_000 * 1e18) # 50k limit
+    yv3Crv.setManagementFee(0)
+
+def create_3crv_strat():
+    dev = accounts.load(click.prompt("Account", type=click.Choice(accounts.load())))
+
+    yv3CRV_address = '0xFfe9fa48A805AC26eEF9DC750765C4dFB530f70b'
+    # yv3Crv = interface.yvvault(yv3CRV_address)
+
+    strategy = StrategyCurve3crv.deploy(yv3CRV_address, "Curve 3crv", {"from": dev})
