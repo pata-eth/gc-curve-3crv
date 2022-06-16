@@ -9,28 +9,53 @@ import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts/math/Math.sol";
 
-import "./interfaces/curve.sol";
-import "./interfaces/yearn.sol";
-import {IUniswapV2Router02} from "./interfaces/uniswap.sol";
-import "@yearnvaults/contracts/BaseStrategy.sol";
+import {BaseStrategy, StrategyParams} from "@yearnvaults/contracts/BaseStrategy.sol";
 
-interface IBaseFee {
-    function isCurrentBaseFeeAcceptable() external view returns (bool);
+interface ITradeFactory {
+    /** 
+    @notice Registers trading pair to ySwaps
+    @param _tokenIn Token currently in strategy that we'd like to swap out
+    @param _tokenOut Token that we'd like to swap `_tokenIn` for
+    */
+    function enable(address _tokenIn, address _tokenOut) external;
 }
 
-interface IUniV3 {
-    struct ExactInputParams {
-        bytes path;
-        address recipient;
-        uint256 deadline;
-        uint256 amountIn;
-        uint256 amountOutMinimum;
-    }
+interface IGauge is IERC20 {
+    /// @notice Deposit `_value` LP tokens for `msg.sender` without claiming pending rewards (if any)
+    /// @param _value Number of LP tokens to deposit
+    function deposit(uint256 _value) external;
 
-    function exactInput(ExactInputParams calldata params)
+    /// @notice Claim third-party reward tokens (e.g., GNO)
+    function claim_rewards() external;
+
+    /// @notice Get the number of claimable CRV tokens per user
+    /// @dev This function should be manually changed to "view" in the ABI
+    /// @param addr User address to check balance for
+    /// @return uint256 number of claimable tokens per user
+    function claimable_tokens(address addr) external returns (uint256);
+
+    /// @notice Estimate claimable third-party reward tokens per user
+    /// @param _addressToCheck User address to check balance for
+    /// @param _rewardToken Third-party token
+    /// @return uint256 number of claimable tokens per user
+    function claimable_reward(address _addressToCheck, address _rewardToken)
         external
-        payable
-        returns (uint256 amountOut);
+        view
+        returns (uint256);
+
+    /// @notice Withdraw `_value` LP tokens without claiming pending rewards (if any)
+    /// @param _value Number of LP tokens to withdraw
+    function withdraw(uint256 _value) external;
+
+    /// @notice CRV inflation assigned to the gauge for week `week`
+    /// @param week weeks
+    function inflation_rate(uint256 week) external view returns (uint256);
+}
+
+interface IGaugeFactory is IERC20 {
+    /// @notice Mints CRV accrued by the user address - msg.sender
+    /// @param _gauge Address of the gauge
+    function mint(address _gauge) external;
 }
 
 abstract contract StrategyCurveBase is BaseStrategy {
@@ -40,19 +65,12 @@ abstract contract StrategyCurveBase is BaseStrategy {
 
     /* ========== STATE VARIABLES ========== */
     // these should stay the same across different wants.
-
-    // Curve stuff
-    IGauge public constant gauge =
-        IGauge(0x78CF256256C8089d68Cde634Cf7cDEFb39286470); // Curve gauge contract, most are tokenized, held by strategy
-
-    // keepCRV stuff
-    uint256 public keepCRV; // the percentage of CRV we re-lock for boost (in basis points)
-    uint256 internal constant FEE_DENOMINATOR = 10000; // this means all of our fee values are in basis points
-
     IERC20 public constant crv =
         IERC20(0x712b3d230F3C1c19db860d80619288b1F0BDd0Bd);
     IERC20 public constant gno =
         IERC20(0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb);
+
+    address public tradeFactory;
 
     bool internal forceHarvestTriggerOnce; // only set this to true externally when we want to trigger our keepers to harvest for us
 
@@ -68,21 +86,95 @@ abstract contract StrategyCurveBase is BaseStrategy {
         return stratName;
     }
 
-    function stakedBalance() public view returns (uint256) {
-        return gauge.balanceOf(address(this));
-    }
+    function protectedTokens()
+        internal
+        view
+        override
+        returns (address[] memory)
+    {}
 
+    /**
+    @notice Returns the strategy's balance of 3CRV LP tokens.
+    @return wantBalance of 3CRV LP tokens
+    */
     function balanceOfWant() public view returns (uint256) {
         return want.balanceOf(address(this));
     }
 
+    /* ========== SETTERS ========== */
+
+    // These functions are useful for setting parameters of the strategy that may need to be adjusted.
+    /**
+    @notice Force a manual harvest with the keeper as needed.
+    @param _forceHarvestTriggerOnce boolean. 
+    */
+    function setForceHarvestTriggerOnce(bool _forceHarvestTriggerOnce)
+        external
+        onlyAuthorized
+    {
+        forceHarvestTriggerOnce = _forceHarvestTriggerOnce;
+    }
+}
+
+contract StrategyCurve3crv is StrategyCurveBase {
+    /* ========== STATE VARIABLES ========== */
+    // these will likely change across different wants.
+
+    // Curve contracts
+    IGauge public constant gauge =
+        IGauge(0xB721Cc32160Ab0da2614CC6aB16eD822Aeebc101); // Curve gauge contract, most are tokenized, held by strategy
+
+    IGaugeFactory public constant gaugeFactory =
+        IGaugeFactory(0xabC000d88f23Bb45525E447528DBF656A9D55bf5);
+
+    /* ========== CONSTRUCTOR ========== */
+
+    constructor(address _vault, string memory _name)
+        public
+        StrategyCurveBase(_vault)
+    {
+        // You can set these parameters on deployment to whatever you want
+        maxReportDelay = 1 days;
+        healthCheck = 0xE8228A2E7102ce51Bb73115e2964A233248398B9;
+
+        // these are our standard approvals. want = Curve LP token
+        want.approve(address(gauge), type(uint256).max);
+
+        // set our strategy's name
+        stratName = _name;
+    }
+
+    /* ========== VIEWS ========== */
+
+    /**
+    @notice Returns the strategy's balance of 3CRV Gauge tokens.
+    @return uint256 Balance of 3CRV Gauge tokens
+    */
+    function stakedBalance() public view returns (uint256) {
+        return gauge.balanceOf(address(this));
+    }
+
+    /**
+    @notice Returns the strategy's balance of 3CRV Pool and Gauge tokens.
+    1 LP token is always 1 Gauge token, which is why they can be added.
+    For more information, please refer to BaseStrategy.sol
+    @return uint256 Balance of 3CRV LP and Gauge tokens 
+    */
     function estimatedTotalAssets() public view override returns (uint256) {
         return balanceOfWant().add(stakedBalance());
     }
 
     /* ========== MUTATIVE FUNCTIONS ========== */
-    // these should stay the same across different wants.
+    // these will likely change across different wants.
 
+    /**
+    @notice Deposit in the gauge any LP tokens available in the strategy,
+    usually from a user's deposit in the vault. For more information, please
+    refer to BaseStrategy.sol
+    @param _debtOutstanding Debt outstanding that the vault requires the 
+    strategy to pay back. Paying back 100% of the debt outstanding is 
+    not required. Not currently used by this strategy in this function.
+    */
     function adjustPosition(uint256 _debtOutstanding) internal override {
         if (emergencyExit) {
             return;
@@ -94,6 +186,16 @@ abstract contract StrategyCurveBase is BaseStrategy {
         }
     }
 
+    /**
+    @notice Liquidate up to `_amountNeeded` of `want` of this strategy's positions. 
+    For more information, please refer to BaseStrategy.sol
+    @param _amountNeeded Amount requested usually due to a withdrawal, or reduction
+    in debt ratio.
+    @return _liquidatedAmount The actual amount that the strategy was able to liquidate
+    Most of the time `_amountNeeded` = `_liquidatedAmount`
+    @return _loss When the strategy is not able to liquidate the requested amount, there
+    is a loss. `_liquidatedAmount` + `_loss` = `_amountNeeded` always
+    */
     function liquidatePosition(uint256 _amountNeeded)
         internal
         override
@@ -117,104 +219,69 @@ abstract contract StrategyCurveBase is BaseStrategy {
         }
     }
 
-    // fire sale, get rid of it all!
+    /** 
+    @notice Unstake LP tokens from gauge and return the total LP token balance.
+    This function is used during emergency exit instead of `prepareReturn()` to
+    liquidate all of the Strategy's positions back to the Vault.
+    @return uint256 LP token balance in the strategy
+    */
     function liquidateAllPositions() internal override returns (uint256) {
         uint256 _stakedBal = stakedBalance();
         if (_stakedBal > 0) {
-            // don't bother withdrawing zero
             gauge.withdraw(_stakedBal);
         }
         return balanceOfWant();
     }
 
+    /** 
+    @notice Do anything necessary to prepare this Strategy for migration. In this
+    case, only unstaking LP tokens from the gauge is required.
+    @param _newStrategy New strategy to which we are migrating. Not used in this
+    strategy.
+    */
     function prepareMigration(address _newStrategy) internal override {
         uint256 _stakedBal = stakedBalance();
         if (_stakedBal > 0) {
             gauge.withdraw(_stakedBal);
         }
+
+        want.safeTransfer(_newStrategy, want.balanceOf(address(this)));
+
+        // Migrate the strategy's balances of CRV and GNO, if any.
+        uint256 crvBalance = crv.balanceOf(address(this));
+        uint256 gnoBalance = gno.balanceOf(address(this));
+        // if we claimed any CRV, then sell it
+        if (crvBalance > 0) {
+            crv.safeTransfer(_newStrategy, crvBalance);
+        }
+        if (gnoBalance > 0) {
+            gno.safeTransfer(_newStrategy, gnoBalance);
+        }
     }
 
-    function protectedTokens()
-        internal
-        view
-        override
-        returns (address[] memory)
-    {}
+    /** 
+    @notice Claim CRV and all third-party tokens from the gauge
+    */
+    function _claimRewards() internal {
+        // Mints claimable CRV from the factory gauge. Reward tokens are sent to `msg.sender`
+        gaugeFactory.mint(address(gauge));
 
-    /* ========== SETTERS ========== */
-
-    // These functions are useful for setting parameters of the strategy that may need to be adjusted.
-
-    // Set the amount of CRV to be locked in Yearn's veCRV voter from each harvest. Default is 10%.
-    function setKeepCRV(uint256 _keepCRV) external onlyAuthorized {
-        require(_keepCRV <= 10_000);
-        keepCRV = _keepCRV;
+        // claim third-party rewards from the gauge, if any
+        gauge.claim_rewards(); // GNO
     }
 
-    // This allows us to manually harvest with our keeper as needed
-    function setForceHarvestTriggerOnce(bool _forceHarvestTriggerOnce)
-        external
-        onlyAuthorized
-    {
-        forceHarvestTriggerOnce = _forceHarvestTriggerOnce;
-    }
-}
-
-contract StrategyCurve3crv is StrategyCurveBase {
-    /* ========== STATE VARIABLES ========== */
-    // these will likely change across different wants.
-
-    // Curve stuff
-    ICurveFi public constant curve =
-        ICurveFi(0x7f90122BF0700F9E7e1F688fe926940E8839F353); // This is our pool specific to this vault.
-
-    // we use these to deposit to our curve pool
-    address public targetToken; // this is the token we sell into, USDT, USDC, or WXDAI
-    IERC20 public constant usdt =
-        IERC20(0x4ECaBa5870353805a9F068101A40E0f32ed605C6);
-    IERC20 public constant usdc =
-        IERC20(0xDDAfbb505ad214D7b80b1f830fcCc89B60fb7A83);
-    IERC20 public constant wxdai =
-        IERC20(0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d);
-    IUniswapV2Router02 public router =
-        IUniswapV2Router02(0x1C232F01118CB8B424793ae03F870aa7D0ac7f77); // this is the router we swap with, start with honeyswap
-
-    address public constant voter = 0xFB4464a18d18f3FF439680BBbCE659dB2806A187; // sms
-
-    /* ========== CONSTRUCTOR ========== */
-
-    constructor(address _vault, string memory _name)
-        public
-        StrategyCurveBase(_vault)
-    {
-        // You can set these parameters on deployment to whatever you want
-        maxReportDelay = 2 days; // 2 days in seconds
-        healthCheck = 0xE8228A2E7102ce51Bb73115e2964A233248398B9; // health.ychad.eth
-
-        // these are our standard approvals. want = Curve LP token
-        address honeyswap = 0x1C232F01118CB8B424793ae03F870aa7D0ac7f77;
-        address baoswap = 0x6093AeBAC87d62b1A5a4cEec91204e35020E38bE;
-        want.approve(address(gauge), type(uint256).max);
-        crv.approve(honeyswap, type(uint256).max);
-        gno.approve(honeyswap, type(uint256).max);
-        crv.approve(baoswap, type(uint256).max);
-        gno.approve(baoswap, type(uint256).max);
-
-        // set our strategy's name
-        stratName = _name;
-
-        // these are our approvals and path specific to this contract
-        wxdai.approve(address(curve), type(uint256).max);
-        usdc.approve(address(curve), type(uint256).max);
-        usdt.safeApprove(address(curve), type(uint256).max);
-
-        // start off with fusdt
-        targetToken = address(wxdai);
+    function claimRewards() external onlyKeepers {
+        _claimRewards();
     }
 
-    /* ========== MUTATIVE FUNCTIONS ========== */
-    // these will likely change across different wants.
-
+    /** 
+    @notice Claims rewards, calculates debt payment to the vault, and the 
+    strategy's PnL.
+    @param _debtOutstanding debt repayment requested by the vault
+    @return _profit strategy's profit
+    @return _loss strategy's loss
+    @return _debtPayment debt repayment. Can be less than `_debtOutstanding`
+    */
     function prepareReturn(uint256 _debtOutstanding)
         internal
         override
@@ -224,43 +291,21 @@ contract StrategyCurve3crv is StrategyCurveBase {
             uint256 _debtPayment
         )
     {
-        // harvest our rewards from the gauge
-        gauge.claim_rewards();
-        uint256 crvBalance = crv.balanceOf(address(this));
-        uint256 gnoBalance = gno.balanceOf(address(this));
-        // if we claimed any CRV, then sell it
-        if (crvBalance > 0) {
-            // keep some of our CRV to increase our boost
-            uint256 sendToVoter = crvBalance.mul(keepCRV).div(FEE_DENOMINATOR);
-            if (keepCRV > 0) {
-                crv.safeTransfer(voter, sendToVoter);
-            }
+        require(tradeFactory != address(0), "!yswaps");
 
-            // check our balance again after transferring some crv to our voter
-            crvBalance = crv.balanceOf(address(this));
+        // Claim rewards from the gauge. In the future, we might have the claim process outside
+        // prepareReturn() so that we avoid calling harvest() twice (with ySwaps in between) as
+        // we have to do with the current setup.
+        // BaseStrategy could have a virtual function where strategies can perform the rewards
+        // claming process; a function that can be called by keepers and ySwaps. Ideally, we would
+        // also add a BaseStrategy virtual function so that keepers/ySwaps can see if there are
+        // claimable rewards.
+        _claimRewards();
 
-            // sell the rest of our CRV
-            if (crvBalance > 0) {
-                _sellToken(address(crv), crvBalance);
-            }
-        }
-        // sell GNO if we have any
-        if (gnoBalance > 0) {
-            _sellToken(address(gno), gnoBalance);
-        }
-
-        uint256 wxdaiBalance = wxdai.balanceOf(address(this));
-        uint256 usdcBalance = usdc.balanceOf(address(this));
-        uint256 usdtBalance = usdt.balanceOf(address(this));
-
-        // deposit our balance to Curve if we have any
-        if (wxdaiBalance > 0 || usdcBalance > 0 || usdtBalance > 0) {
-            curve.add_liquidity([wxdaiBalance, usdcBalance, usdtBalance], 0);
-        }
-
-        // debtOustanding will only be > 0 in the event of revoking or if we need to rebalance from a withdrawal or lowering the debtRatio
-        uint256 stakedBal = stakedBalance();
+        // debtOustanding will only be > 0 in the event of revoking or if we need to
+        // rebalance from a withdrawal or lowering the debtRatio
         if (_debtOutstanding > 0) {
+            uint256 stakedBal = stakedBalance();
             if (stakedBal > 0) {
                 // don't bother withdrawing if we don't have staked funds
                 gauge.withdraw(Math.min(stakedBal, _debtOutstanding));
@@ -269,7 +314,8 @@ contract StrategyCurve3crv is StrategyCurveBase {
             _debtPayment = Math.min(_debtOutstanding, _withdrawnBal);
         }
 
-        // serious loss should never happen, but if it does (for instance, if Curve is hacked), let's record it accurately
+        // serious loss should never happen, but if it does (for instance, if Curve is hacked),
+        // let's record it accurately
         uint256 assets = estimatedTotalAssets();
         uint256 debt = vault.strategies(address(this)).totalDebt;
 
@@ -288,27 +334,56 @@ contract StrategyCurve3crv is StrategyCurveBase {
         }
 
         // we're done harvesting, so reset our trigger if we used it
-        forceHarvestTriggerOnce = false;
+        delete forceHarvestTriggerOnce;
     }
 
-    // Sells our CRV or GNO for our target token
-    function _sellToken(address token, uint256 _amount) internal {
-        if (token != address(targetToken)) {
-            address[] memory tokenPath = new address[](2);
-            tokenPath[0] = address(token);
-            tokenPath[1] = address(targetToken);
-            router.swapExactTokensForTokens(
-                _amount,
-                uint256(0),
-                tokenPath,
-                address(this),
-                block.timestamp
-            );
+    /* ========== ySwaps ========== */
+
+    /** 
+    @notice Set ySwaps address, approve ySwaps contract to sell our reward tokens 
+    and register the swaps required by this strategy.
+    @param _tradeFactory ySwaps contract address
+    */
+    function setTradeFactory(address _tradeFactory) external onlyGovernance {
+        require(_tradeFactory != address(0), "!address");
+
+        _removeTradeFactoryPermissions();
+
+        // approve and set up trade factory
+        crv.safeApprove(_tradeFactory, type(uint256).max);
+        gno.safeApprove(_tradeFactory, type(uint256).max);
+
+        ITradeFactory(_tradeFactory).enable(address(crv), address(want));
+        ITradeFactory(_tradeFactory).enable(address(gno), address(want));
+
+        tradeFactory = _tradeFactory;
+    }
+
+    /** 
+    @notice Revoke ySwaps contract. Sets allowance to 0 and `tradeFactory`
+    to address(0)
+    */
+    function removeTradeFactoryPermissions() external onlyEmergencyAuthorized {
+        _removeTradeFactoryPermissions();
+    }
+
+    function _removeTradeFactoryPermissions() internal {
+        if (tradeFactory != address(0)) {
+            crv.safeApprove(tradeFactory, 0);
+            gno.safeApprove(tradeFactory, 0);
+            delete tradeFactory;
         }
     }
 
     /* ========== KEEP3RS ========== */
 
+    /** 
+    @notice The trigger returns a boolean indicating whether the keeper
+    should make the call to `harvest()`
+    @param callCostinEth Expected cost of calling harvest in the native currency 
+    of the blockchain
+    @return bool Indicates whether `harvest()` should be called
+    */
     function harvestTrigger(uint256 callCostinEth)
         public
         view
@@ -331,49 +406,17 @@ contract StrategyCurve3crv is StrategyCurveBase {
         return false;
     }
 
-    // convert our keeper's eth cost into want, we don't need this anymore since we don't use baseStrategy harvestTrigger
+    /** 
+    @notice convert our keeper's native cost of the `harvest()` call into want. Not 
+    currently used in this strategy.
+    @param _ethAmount Expected cost of calling harvest in the native currency 
+    of the blockchain
+    @return uint256 Transaction cost in want units
+    */
     function ethToWant(uint256 _ethAmount)
         public
         view
         override
         returns (uint256)
-    {
-        return _ethAmount;
-    }
-
-    /* ========== SETTERS ========== */
-
-    // These functions are useful for setting parameters of the strategy that may need to be adjusted.
-    // Set optimal token to sell harvested funds for depositing to Curve.
-    // Default is fUSDT, but can be set to WETH or WBTC as needed by strategist or governance.
-    function setOptimal(uint256 _optimal) external onlyAuthorized {
-        if (_optimal == 0) {
-            targetToken = address(wxdai);
-        } else if (_optimal == 1) {
-            targetToken = address(usdc);
-        } else if (_optimal == 2) {
-            targetToken = address(usdt);
-        } else {
-            revert("incorrect token");
-        }
-    }
-
-    // Honeyswap generally has better liquidity. if this changes, we can use Baoswap.
-    function setUseHoneySwap(bool useHoney) external onlyAuthorized {
-        if (useHoney) {
-            router = IUniswapV2Router02(
-                0x1C232F01118CB8B424793ae03F870aa7D0ac7f77
-            ); // Honeyswap's router
-        } else {
-            router = IUniswapV2Router02(
-                0x6093AeBAC87d62b1A5a4cEec91204e35020E38bE
-            ); // Baoswap router
-        }
-    }
-
-    // ERC-677 compatibility
-    function onTokenTransfer(address from, uint256 amount, bytes memory data) public returns (bool success) {
-        //TODO: do nothing
-        return true;
-    }
+    {}
 }

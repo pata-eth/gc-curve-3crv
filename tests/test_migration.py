@@ -1,6 +1,4 @@
-import brownie
-from brownie import Contract
-from brownie import config
+from scripts.utils import getSnapshot
 import math
 
 
@@ -17,24 +15,23 @@ def test_migration(
     strategist_ms,
     healthCheck,
     amount,
-    pool,
     strategy_name,
     gauge,
+    gaugeFactory,
+    tradeFactory,
+    crv,
+    gno,
 ):
 
     ## deposit to the vault after approving
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
     chain.sleep(1)
     strategy.harvest({"from": gov})
     chain.sleep(1)
 
     # deploy our new strategy
-    new_strategy = strategist.deploy(
-        StrategyCurve3crv,
-        vault,
-        strategy_name,
-    )
+    new_strategy = StrategyCurve3crv.deploy(vault, strategy_name, {"from": strategist})
     total_old = strategy.estimatedTotalAssets()
 
     # can we harvest an unactivated strategy? should be no
@@ -48,9 +45,24 @@ def test_migration(
     chain.mine(1)
 
     # migrate our old strategy
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
+    strategy.harvest({"from": gov})
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
+
+    # Reward tokens to migrate
+    crvToMigrate = crv.balanceOf(strategy)
+    gnoToMigrate = gno.balanceOf(strategy)
+
     vault.migrateStrategy(strategy, new_strategy, {"from": gov})
-    new_strategy.setHealthCheck(healthCheck, {"from": gov})
     new_strategy.setDoHealthCheck(True, {"from": gov})
+    new_strategy.setTradeFactory(tradeFactory, {"from": gov})
+
+    # Reward tokens migrated
+    crvMigrated = crv.balanceOf(new_strategy)
+    gnoMigrated = gno.balanceOf(new_strategy)
+
+    assert crvToMigrate == crvMigrated
+    assert gnoToMigrate == gnoMigrated
 
     # assert that our old strategy is empty
     updated_total_old = strategy.estimatedTotalAssets()
@@ -58,7 +70,9 @@ def test_migration(
 
     # harvest to get funds back in strategy
     chain.sleep(1)
+    getSnapshot(vault, new_strategy, crv, gno, gauge, gaugeFactory)
     new_strategy.harvest({"from": gov})
+    getSnapshot(vault, new_strategy, crv, gno, gauge, gaugeFactory)
     new_strat_balance = new_strategy.estimatedTotalAssets()
 
     # confirm we made money, or at least that we have about the same

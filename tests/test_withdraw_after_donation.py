@@ -1,6 +1,5 @@
-import brownie
-from brownie import chain, Contract
 import math
+from scripts.utils import getSnapshot
 
 # lower debtRatio to 50%, donate, withdraw less than the donation, then harvest
 def test_withdraw_after_donation_1(
@@ -15,7 +14,7 @@ def test_withdraw_after_donation_1(
 ):
 
     ## deposit to the vault after approving
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
     chain.sleep(1)
     strategy.harvest({"from": gov})
@@ -26,11 +25,6 @@ def test_withdraw_after_donation_1(
     currentDebt = vault.strategies(strategy)[2]
     vault.updateStrategyDebtRatio(strategy, currentDebt / 2, {"from": gov})
     assert vault.strategies(strategy)[2] == 5000
-
-    # under our new method of using min and maxDelay, this no longer matters or works
-    # tx = new_strategy.harvestTrigger(0, {"from": gov})
-    # print("\nShould we harvest? Should be true.", tx)
-    # assert tx == True
 
     # our whale donates dust to the vault, what a nice person!
     donation = amount / 2
@@ -58,7 +52,7 @@ def test_withdraw_after_donation_1(
     assert profit > 0
 
     # specifically check that our gain is greater than our donation or confirm we're no more than 5 wei off.
-    assert new_params["totalGain"] - prev_params["totalGain"] > donation
+    assert new_params["totalGain"] - prev_params["totalGain"] >= donation
 
     # check to make sure that our debtRatio is about half of our previous debt
     assert new_params["debtRatio"] == currentDebt / 2
@@ -89,7 +83,7 @@ def test_withdraw_after_donation_2(
 ):
 
     ## deposit to the vault after approving
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
     chain.sleep(1)
     strategy.harvest({"from": gov})
@@ -97,14 +91,8 @@ def test_withdraw_after_donation_2(
 
     prev_params = vault.strategies(strategy).dict()
 
-    currentDebt = vault.strategies(strategy)[2]
     vault.updateStrategyDebtRatio(strategy, 0, {"from": gov})
     assert vault.strategies(strategy)[2] == 0
-
-    # under our new method of using min and maxDelay, this no longer matters or works
-    # tx = new_strategy.harvestTrigger(0, {"from": gov})
-    # print("\nShould we harvest? Should be true.", tx)
-    # assert tx == True
 
     # our whale donates dust to the vault, what a nice person!
     donation = amount / 2
@@ -132,7 +120,7 @@ def test_withdraw_after_donation_2(
     assert profit > 0
 
     # specifically check that our gain is greater than our donation or confirm we're no more than 5 wei off.
-    assert new_params["totalGain"] - prev_params["totalGain"] > donation
+    assert new_params["totalGain"] - prev_params["totalGain"] >= donation
 
     # check that we didn't add any more loss, or at least no more than 2 wei
     assert new_params["totalLoss"] == prev_params["totalLoss"]
@@ -157,10 +145,14 @@ def test_withdraw_after_donation_3(
     strategy,
     chain,
     amount,
+    crv,
+    gno,
+    gauge,
+    gaugeFactory,
 ):
 
     ## deposit to the vault after approving
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
     chain.sleep(1)
     strategy.harvest({"from": gov})
@@ -168,21 +160,20 @@ def test_withdraw_after_donation_3(
 
     prev_params = vault.strategies(strategy).dict()
 
-    currentDebt = vault.strategies(strategy)[2]
     vault.updateStrategyDebtRatio(strategy, 0, {"from": gov})
     assert vault.strategies(strategy)[2] == 0
-
-    # under our new method of using min and maxDelay, this no longer matters or works
-    # tx = new_strategy.harvestTrigger(0, {"from": gov})
-    # print("\nShould we harvest? Should be true.", tx)
-    # assert tx == True
 
     # our whale donates dust to the vault, what a nice person!
     donation = amount / 2
     token.transfer(strategy, donation, {"from": whale})
 
-    # have our whale withdraws more than his donation, ensuring we pull from strategy
-    vault.withdraw(donation + amount / 2, {"from": whale})
+    # have our whale withdraw more than his donation, ensuring we pull from strategy
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
+    tx = vault.withdraw({"from": whale})
+    withdrawal = tx.return_value
+    assert withdrawal > donation
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
+    vault.balanceOf(whale)
 
     # simulate one day of earnings
     chain.sleep(86400)
@@ -203,7 +194,7 @@ def test_withdraw_after_donation_3(
     assert profit > 0
 
     # specifically check that our gain is greater than our donation or confirm we're no more than 5 wei off.
-    assert new_params["totalGain"] - prev_params["totalGain"] > donation
+    assert new_params["totalGain"] - prev_params["totalGain"] >= donation
 
     # check that we didn't add any more loss, or at least no more than 2 wei
     assert new_params["totalLoss"] == prev_params["totalLoss"]
@@ -228,10 +219,14 @@ def test_withdraw_after_donation_4(
     strategy,
     chain,
     amount,
+    crv,
+    gno,
+    gauge,
+    gaugeFactory,
 ):
 
     ## deposit to the vault after approving
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
     chain.sleep(1)
     strategy.harvest({"from": gov})
@@ -253,7 +248,11 @@ def test_withdraw_after_donation_4(
     token.transfer(strategy, donation, {"from": whale})
 
     # have our whale withdraws more than his donation, ensuring we pull from strategy
-    vault.withdraw(donation + amount / 2, {"from": whale})
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
+    tx = vault.withdraw({"from": whale})
+    withdrawal = tx.return_value
+    assert withdrawal > donation
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
 
     # simulate one day of earnings
     chain.sleep(86400)
@@ -276,7 +275,7 @@ def test_withdraw_after_donation_4(
     # specifically check that our gain is greater than our donation or confirm we're no more than 5 wei off.
     assert new_params["totalGain"] - prev_params[
         "totalGain"
-    ] > donation or math.isclose(
+    ] >= donation or math.isclose(
         new_params["totalGain"] - prev_params["totalGain"], donation, abs_tol=5
     )
 
@@ -306,10 +305,14 @@ def test_withdraw_after_donation_5(
     strategy,
     chain,
     amount,
+    crv,
+    gno,
+    gauge,
+    gaugeFactory,
 ):
 
     ## deposit to the vault after approving
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
     chain.sleep(1)
     strategy.harvest({"from": gov})
@@ -322,7 +325,11 @@ def test_withdraw_after_donation_5(
     token.transfer(strategy, donation, {"from": whale})
 
     # have our whale withdraws more than his donation, ensuring we pull from strategy
-    vault.withdraw(donation + amount / 2, {"from": whale})
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
+    tx = vault.withdraw({"from": whale})
+    withdrawal = tx.return_value
+    assert withdrawal > donation
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
 
     # simulate one day of earnings
     chain.sleep(86400)
@@ -343,7 +350,7 @@ def test_withdraw_after_donation_5(
     assert profit > 0
 
     # specifically check that our gain is greater than our donation or confirm we're no more than 5 wei off.
-    assert new_params["totalGain"] - prev_params["totalGain"] > donation
+    assert new_params["totalGain"] - prev_params["totalGain"] >= donation
 
     # check that we didn't add any more loss, or at least no more than 2 wei
     assert new_params["totalLoss"] == prev_params["totalLoss"]
@@ -371,7 +378,7 @@ def test_withdraw_after_donation_6(
 ):
 
     ## deposit to the vault after approving
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
     chain.sleep(1)
     strategy.harvest({"from": gov})
@@ -405,7 +412,7 @@ def test_withdraw_after_donation_6(
     assert profit > 0
 
     # specifically check that our gain is greater than our donation or confirm we're no more than 5 wei off.
-    assert new_params["totalGain"] - prev_params["totalGain"] > donation
+    assert new_params["totalGain"] - prev_params["totalGain"] >= donation
 
     # check that we didn't add any more loss, or at least no more than 2 wei
     assert new_params["totalLoss"] == prev_params["totalLoss"]
@@ -431,11 +438,13 @@ def test_withdraw_after_donation_7(
     chain,
     amount,
     gauge,
-    voter,
+    crv,
+    gno,
+    gaugeFactory,
 ):
 
     ## deposit to the vault after approving
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
     chain.sleep(1)
     strategy.harvest({"from": gov})
@@ -444,22 +453,19 @@ def test_withdraw_after_donation_7(
     prev_params = vault.strategies(strategy).dict()
     prev_assets = vault.totalAssets()
 
-    currentDebt = vault.strategies(strategy)[2]
     vault.updateStrategyDebtRatio(strategy, 0, {"from": gov})
     assert vault.strategies(strategy)[2] == 0
-
-    # under our new method of using min and maxDelay, this no longer matters or works
-    # tx = new_strategy.harvestTrigger(0, {"from": gov})
-    # print("\nShould we harvest? Should be true.", tx)
-    # assert tx == True
 
     # our whale donates dust to the vault, what a nice person!
     donation = amount / 2
     token.transfer(strategy, donation, {"from": whale})
 
     # have our whale withdraws more than his donation, ensuring we pull from strategy
-    withdrawal = donation + amount / 2
-    vault.withdraw(withdrawal, {"from": whale})
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
+    tx = vault.withdraw({"from": whale})
+    withdrawal = tx.return_value
+    assert withdrawal > donation
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
 
     # simulate one day of earnings
     chain.sleep(86400)
@@ -479,7 +485,7 @@ def test_withdraw_after_donation_7(
     current_assets = vault.totalAssets()
 
     # assert that our total assets have gone up or stayed the same when accounting for the donation and withdrawal
-    assert current_assets >= donation - withdrawal + prev_assets
+    assert current_assets >= prev_assets + donation - withdrawal
 
     new_params = vault.strategies(strategy).dict()
 
@@ -497,7 +503,7 @@ def test_withdraw_after_donation_7(
     assert profit > 0
 
     # specifically check that our gain is greater than our donation or confirm we're no more than 5 wei off.
-    assert new_params["totalGain"] - prev_params["totalGain"] > donation
+    assert new_params["totalGain"] - prev_params["totalGain"] >= donation
 
     # check that we didn't add any more loss, or at least no more than 2 wei
     assert new_params["totalLoss"] == prev_params["totalLoss"]
@@ -513,36 +519,36 @@ def test_withdraw_after_donation_8(
     strategy,
     chain,
     amount,
+    crv,
+    gno,
     gauge,
-    voter,
+    gaugeFactory,
 ):
 
     ## deposit to the vault after approving
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
     chain.sleep(1)
     strategy.harvest({"from": gov})
     chain.sleep(1)
 
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
+
     prev_params = vault.strategies(strategy).dict()
     prev_assets = vault.totalAssets()
 
-    currentDebt = vault.strategies(strategy)[2]
     vault.updateStrategyDebtRatio(strategy, 0, {"from": gov})
     assert vault.strategies(strategy)[2] == 0
-
-    # under our new method of using min and maxDelay, this no longer matters or works
-    # tx = new_strategy.harvestTrigger(0, {"from": gov})
-    # print("\nShould we harvest? Should be true.", tx)
-    # assert tx == True
 
     # our whale donates dust to the vault, what a nice person!
     donation = amount / 2
     token.transfer(strategy, donation, {"from": whale})
 
-    # have our whale withdraws more than his donation, ensuring we pull from strategy
+    # have our whale withdraws less than his donation
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
     withdrawal = donation / 2
     vault.withdraw(withdrawal, {"from": whale})
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
 
     # simulate one day of earnings
     chain.sleep(86400)
@@ -554,6 +560,7 @@ def test_withdraw_after_donation_8(
     # turn off health check since we just took big profit
     strategy.setDoHealthCheck(False, {"from": gov})
     strategy.harvest({"from": gov})
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
 
     # check everywhere to make sure we emptied out the strategy
     assert strategy.estimatedTotalAssets() == 0
@@ -580,7 +587,7 @@ def test_withdraw_after_donation_8(
     assert profit > 0
 
     # specifically check that our gain is greater than our donation or confirm we're no more than 5 wei off.
-    assert new_params["totalGain"] - prev_params["totalGain"] > donation
+    assert new_params["totalGain"] - prev_params["totalGain"] >= donation
 
     # check that we didn't add any more loss, or at least no more than 2 wei
     assert new_params["totalLoss"] == prev_params["totalLoss"]
