@@ -80,8 +80,8 @@ def gaugeFactory():
 
 
 @pytest.fixture(scope="module")
-def tradeFactory():
-    yield interface.ITradeFactory(
+def tradeHandler():
+    yield interface.ITradeHandler(
         "0xabC000d88f23Bb45525E447528DBF656A9D55bf5"
     )  # TODO: update address
 
@@ -161,7 +161,7 @@ def strategy(
     strategy_name,
     other_vault_strategy,
     xdai_whale,
-    tradeFactory,
+    tradeHandler,
 ):
     # make sure to include all constructor parameters needed here
     xdai_whale.transfer(strategist, "1 ether")
@@ -169,6 +169,7 @@ def strategy(
     strategy = StrategyCurve3crv.deploy(
         vault,
         strategy_name,
+        tradeHandler,
         {"from": strategist},
     )
 
@@ -178,5 +179,4 @@ def strategy(
     # vault.migrateStrategy(other_vault_strategy, strategy, {"from": gov})
     # vault.updateStrategyPerformanceFee(strategy, 0, {"from": gov})
     strategy.setDoHealthCheck(True, {"from": gov})
-    strategy.setTradeFactory(tradeFactory, {"from": gov})
     yield strategy

@@ -18,7 +18,7 @@ def test_migration(
     strategy_name,
     gauge,
     gaugeFactory,
-    tradeFactory,
+    tradeHandler,
     crv,
     gno,
 ):
@@ -31,7 +31,9 @@ def test_migration(
     chain.sleep(1)
 
     # deploy our new strategy
-    new_strategy = StrategyCurve3crv.deploy(vault, strategy_name, {"from": strategist})
+    new_strategy = StrategyCurve3crv.deploy(
+        vault, strategy_name, tradeHandler, {"from": strategist}
+    )
     total_old = strategy.estimatedTotalAssets()
 
     # can we harvest an unactivated strategy? should be no
@@ -55,7 +57,6 @@ def test_migration(
 
     vault.migrateStrategy(strategy, new_strategy, {"from": gov})
     new_strategy.setDoHealthCheck(True, {"from": gov})
-    new_strategy.setTradeFactory(tradeFactory, {"from": gov})
 
     # Reward tokens migrated
     crvMigrated = crv.balanceOf(new_strategy)

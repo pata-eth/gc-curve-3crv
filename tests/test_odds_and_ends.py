@@ -16,7 +16,7 @@ def test_odds_and_ends(
     StrategyCurve3crv,
     amount,
     strategy_name,
-    tradeFactory,
+    tradeHandler,
 ):
 
     ## deposit to the vault after approving. turn off health check before each harvest since we're doing weird shit
@@ -58,8 +58,8 @@ def test_odds_and_ends(
         StrategyCurve3crv,
         vault,
         strategy_name,
+        tradeHandler,
     )
-    new_strategy.setTradeFactory(tradeFactory, {"from": gov})
     total_old = strategy.estimatedTotalAssets()
 
     # migrate our old strategy
@@ -154,7 +154,7 @@ def test_odds_and_ends_migration(
     amount,
     strategy_name,
     gauge,
-    tradeFactory,
+    tradeHandler,
 ):
 
     ## deposit to the vault after approving
@@ -169,8 +169,8 @@ def test_odds_and_ends_migration(
         StrategyCurve3crv,
         vault,
         strategy_name,
+        tradeHandler,
     )
-    new_strategy.setTradeFactory(tradeFactory, {"from": gov})
     total_old = strategy.estimatedTotalAssets()
 
     # sleep for a day

@@ -11,7 +11,7 @@ import "@openzeppelin/contracts/math/Math.sol";
 
 import {BaseStrategy, StrategyParams} from "@yearnvaults/contracts/BaseStrategy.sol";
 
-interface ITradeFactory {
+interface ITradeHandler {
     /** 
     @notice Registers trading pair to ySwaps
     @param _tokenIn Token currently in strategy that we'd like to swap out
@@ -70,7 +70,11 @@ abstract contract StrategyCurveBase is BaseStrategy {
     IERC20 public constant gno =
         IERC20(0x9C58BAcC331c9aa871AFD802DB6379a98e80CEdb);
 
-    address public tradeFactory;
+    // Trade Handler (ySwaps)
+    event UpdatedTradeHandler();
+    event RevokedTradeHandler();
+
+    address public tradeHandler;
 
     bool internal forceHarvestTriggerOnce; // only set this to true externally when we want to trigger our keepers to harvest for us
 
@@ -129,10 +133,11 @@ contract StrategyCurve3crv is StrategyCurveBase {
 
     /* ========== CONSTRUCTOR ========== */
 
-    constructor(address _vault, string memory _name)
-        public
-        StrategyCurveBase(_vault)
-    {
+    constructor(
+        address _vault,
+        string memory _name,
+        address _tradeHandler
+    ) public StrategyCurveBase(_vault) {
         // You can set these parameters on deployment to whatever you want
         maxReportDelay = 1 days;
         healthCheck = 0xE8228A2E7102ce51Bb73115e2964A233248398B9;
@@ -142,6 +147,10 @@ contract StrategyCurve3crv is StrategyCurveBase {
 
         // set our strategy's name
         stratName = _name;
+
+        // Set trade handler and enable trades
+        tradeHandler = _tradeHandler;
+        _enableTrades();
     }
 
     /* ========== VIEWS ========== */
@@ -291,8 +300,6 @@ contract StrategyCurve3crv is StrategyCurveBase {
             uint256 _debtPayment
         )
     {
-        require(tradeFactory != address(0), "!yswaps");
-
         // Claim rewards from the gauge. In the future, we might have the claim process outside
         // prepareReturn() so that we avoid calling harvest() twice (with ySwaps in between) as
         // we have to do with the current setup.
@@ -340,38 +347,44 @@ contract StrategyCurve3crv is StrategyCurveBase {
     /* ========== ySwaps ========== */
 
     /** 
-    @notice Set ySwaps address, approve ySwaps contract to sell our reward tokens 
-    and register the swaps required by this strategy.
-    @param _tradeFactory ySwaps contract address
+    @notice Update Trade Handler (ySwaps) address, approve handler contract to sell our 
+    reward tokens, and register the swaps required by this strategy.
+    @param _tradeHandler ySwaps contract address
     */
-    function setTradeFactory(address _tradeFactory) external onlyGovernance {
-        require(_tradeFactory != address(0), "!address");
-
-        _removeTradeFactoryPermissions();
-
-        // approve and set up trade factory
-        crv.safeApprove(_tradeFactory, type(uint256).max);
-        gno.safeApprove(_tradeFactory, type(uint256).max);
-
-        ITradeFactory(_tradeFactory).enable(address(crv), address(want));
-        ITradeFactory(_tradeFactory).enable(address(gno), address(want));
-
-        tradeFactory = _tradeFactory;
+    function updateTradeHandler(address _tradeHandler) external onlyGovernance {
+        _removeTradeHandlerPermissions();
+        tradeHandler = _tradeHandler;
+        _enableTrades();
+        emit UpdatedTradeHandler();
     }
 
     /** 
-    @notice Revoke ySwaps contract. Sets allowance to 0 and `tradeFactory`
-    to address(0)
+    @notice Takes care of the approvals needed by Trade Handler (ySwaps) and 
+    enables the swaps required by the strategy
     */
-    function removeTradeFactoryPermissions() external onlyEmergencyAuthorized {
-        _removeTradeFactoryPermissions();
+    function _enableTrades() internal {
+        // approve and set up trade handler
+        crv.safeApprove(tradeHandler, type(uint256).max);
+        gno.safeApprove(tradeHandler, type(uint256).max);
+
+        ITradeHandler(tradeHandler).enable(address(crv), address(want));
+        ITradeHandler(tradeHandler).enable(address(gno), address(want));
     }
 
-    function _removeTradeFactoryPermissions() internal {
-        if (tradeFactory != address(0)) {
-            crv.safeApprove(tradeFactory, 0);
-            gno.safeApprove(tradeFactory, 0);
-            delete tradeFactory;
+    /** 
+    @notice Revoke Trade Handler (ySwaps) contract. Sets allowance to 0 and `tradeHandler`
+    to address(0)
+    */
+    function removeTradeHandlerPermissions() external onlyEmergencyAuthorized {
+        _removeTradeHandlerPermissions();
+    }
+
+    function _removeTradeHandlerPermissions() internal {
+        if (tradeHandler != address(0)) {
+            crv.safeApprove(tradeHandler, 0);
+            gno.safeApprove(tradeHandler, 0);
+            delete tradeHandler;
+            emit RevokedTradeHandler();
         }
     }
 
