@@ -81,9 +81,7 @@ def gaugeFactory():
 
 @pytest.fixture(scope="module")
 def tradeHandler():
-    yield interface.ITradeHandler(
-        "0xabC000d88f23Bb45525E447528DBF656A9D55bf5"
-    )  # TODO: update address
+    yield interface.ITradeHandler("0x4987d1856F93DFf29e08aa605A805FaF43dC3103")
 
 
 # Define any accounts in this section
@@ -161,7 +159,6 @@ def strategy(
     strategy_name,
     other_vault_strategy,
     xdai_whale,
-    tradeHandler,
 ):
     # make sure to include all constructor parameters needed here
     xdai_whale.transfer(strategist, "1 ether")
@@ -169,7 +166,6 @@ def strategy(
     strategy = StrategyCurve3crv.deploy(
         vault,
         strategy_name,
-        tradeHandler,
         {"from": strategist},
     )
 

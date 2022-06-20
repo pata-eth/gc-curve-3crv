@@ -16,7 +16,6 @@ def test_odds_and_ends(
     StrategyCurve3crv,
     amount,
     strategy_name,
-    tradeHandler,
 ):
 
     ## deposit to the vault after approving. turn off health check before each harvest since we're doing weird shit
@@ -54,12 +53,7 @@ def test_odds_and_ends(
 
     # we can try to migrate too, lol
     # deploy our new strategy
-    new_strategy = strategist.deploy(
-        StrategyCurve3crv,
-        vault,
-        strategy_name,
-        tradeHandler,
-    )
+    new_strategy = strategist.deploy(StrategyCurve3crv, vault, strategy_name)
     total_old = strategy.estimatedTotalAssets()
 
     # migrate our old strategy
@@ -153,8 +147,6 @@ def test_odds_and_ends_migration(
     strategist_ms,
     amount,
     strategy_name,
-    gauge,
-    tradeHandler,
 ):
 
     ## deposit to the vault after approving
@@ -169,7 +161,6 @@ def test_odds_and_ends_migration(
         StrategyCurve3crv,
         vault,
         strategy_name,
-        tradeHandler,
     )
     total_old = strategy.estimatedTotalAssets()
 

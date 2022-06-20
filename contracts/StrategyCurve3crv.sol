@@ -72,9 +72,10 @@ abstract contract StrategyCurveBase is BaseStrategy {
 
     // Trade Handler (ySwaps)
     event UpdatedTradeHandler();
-    event RevokedTradeHandler();
+    event DisabledTradeHandler();
 
-    address public tradeHandler;
+    ITradeHandler public tradeHandler =
+        ITradeHandler(0x4987d1856F93DFf29e08aa605A805FaF43dC3103);
 
     bool internal forceHarvestTriggerOnce; // only set this to true externally when we want to trigger our keepers to harvest for us
 
@@ -133,11 +134,10 @@ contract StrategyCurve3crv is StrategyCurveBase {
 
     /* ========== CONSTRUCTOR ========== */
 
-    constructor(
-        address _vault,
-        string memory _name,
-        address _tradeHandler
-    ) public StrategyCurveBase(_vault) {
+    constructor(address _vault, string memory _name)
+        public
+        StrategyCurveBase(_vault)
+    {
         // You can set these parameters on deployment to whatever you want
         maxReportDelay = 1 days;
         healthCheck = 0xE8228A2E7102ce51Bb73115e2964A233248398B9;
@@ -148,8 +148,7 @@ contract StrategyCurve3crv is StrategyCurveBase {
         // set our strategy's name
         stratName = _name;
 
-        // Set trade handler and enable trades
-        tradeHandler = _tradeHandler;
+        // enable swaps needed by the strategy
         _enableTrades();
     }
 
@@ -254,11 +253,10 @@ contract StrategyCurve3crv is StrategyCurveBase {
             gauge.withdraw(_stakedBal);
         }
 
-        want.safeTransfer(_newStrategy, want.balanceOf(address(this)));
-
         // Migrate the strategy's balances of CRV and GNO, if any.
         uint256 crvBalance = crv.balanceOf(address(this));
         uint256 gnoBalance = gno.balanceOf(address(this));
+
         // if we claimed any CRV, then sell it
         if (crvBalance > 0) {
             crv.safeTransfer(_newStrategy, crvBalance);
@@ -352,8 +350,8 @@ contract StrategyCurve3crv is StrategyCurveBase {
     @param _tradeHandler ySwaps contract address
     */
     function updateTradeHandler(address _tradeHandler) external onlyGovernance {
-        _removeTradeHandlerPermissions();
-        tradeHandler = _tradeHandler;
+        _disableTradeHandlerPermissions();
+        tradeHandler = ITradeHandler(_tradeHandler);
         _enableTrades();
         emit UpdatedTradeHandler();
     }
@@ -364,27 +362,27 @@ contract StrategyCurve3crv is StrategyCurveBase {
     */
     function _enableTrades() internal {
         // approve and set up trade handler
-        crv.safeApprove(tradeHandler, type(uint256).max);
-        gno.safeApprove(tradeHandler, type(uint256).max);
+        crv.safeApprove(address(tradeHandler), type(uint256).max);
+        gno.safeApprove(address(tradeHandler), type(uint256).max);
 
-        ITradeHandler(tradeHandler).enable(address(crv), address(want));
-        ITradeHandler(tradeHandler).enable(address(gno), address(want));
+        tradeHandler.enable(address(crv), address(want));
+        tradeHandler.enable(address(gno), address(want));
     }
 
     /** 
-    @notice Revoke Trade Handler (ySwaps) contract. Sets allowance to 0 and `tradeHandler`
+    @notice Disables Trade Handler (ySwaps) contract. Sets allowance to 0 and `tradeHandler`
     to address(0)
     */
-    function removeTradeHandlerPermissions() external onlyEmergencyAuthorized {
-        _removeTradeHandlerPermissions();
+    function disableTradeHandlerPermissions() external onlyEmergencyAuthorized {
+        _disableTradeHandlerPermissions();
     }
 
-    function _removeTradeHandlerPermissions() internal {
-        if (tradeHandler != address(0)) {
-            crv.safeApprove(tradeHandler, 0);
-            gno.safeApprove(tradeHandler, 0);
+    function _disableTradeHandlerPermissions() internal {
+        if (address(tradeHandler) != address(0)) {
+            crv.safeApprove(address(tradeHandler), 0);
+            gno.safeApprove(address(tradeHandler), 0);
             delete tradeHandler;
-            emit RevokedTradeHandler();
+            emit DisabledTradeHandler();
         }
     }
 
