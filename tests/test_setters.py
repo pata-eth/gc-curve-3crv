@@ -1,6 +1,4 @@
-import brownie
-from brownie import Contract
-from brownie import config
+from brownie import ZERO_ADDRESS, reverts
 
 
 def test_setters(
@@ -37,8 +35,7 @@ def test_setters(
     assert tx == False
 
     ## deposit to the vault after approving
-    startingWhale = token.balanceOf(whale)
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
     chain.sleep(1)
     strategy.harvest({"from": gov})
@@ -51,10 +48,6 @@ def test_setters(
     strategy.setMinReportDelay(100, {"from": gov})
     strategy.setProfitFactor(1000, {"from": gov})
     strategy.setRewards(gov, {"from": strategist})
-    strategy.setKeepCRV(10, {"from": gov})
-    strategy.setUseHoneySwap(True, {"from": gov})
-    strategy.setUseHoneySwap(False, {"from": gov})
-    strategy.setUseHoneySwap(False, {"from": gov})
 
     strategy.setStrategist(strategist, {"from": gov})
     name = strategy.name()
@@ -69,40 +62,32 @@ def test_setters(
     strategy.harvest({"from": gov})
     chain.sleep(86400)
 
-    zero = "0x0000000000000000000000000000000000000000"
-    
-    with brownie.reverts():
-        strategy.setOptimal(4, {"from": gov})
-    with brownie.reverts():
-        strategy.setKeeper(zero, {"from": gov})
-    with brownie.reverts():
-        strategy.setRewards(zero, {"from": strategist})
-    with brownie.reverts():
-        strategy.setStrategist(zero, {"from": gov})
-    with brownie.reverts():
+    with reverts():
+        strategy.setKeeper(ZERO_ADDRESS, {"from": gov})
+    with reverts():
+        strategy.setRewards(ZERO_ADDRESS, {"from": strategist})
+    with reverts():
+        strategy.setStrategist(ZERO_ADDRESS, {"from": gov})
+    with reverts():
         strategy.setDoHealthCheck(False, {"from": whale})
-    with brownie.reverts():
+    with reverts():
         strategy.setEmergencyExit({"from": whale})
-    with brownie.reverts():
+    with reverts():
         strategy.setMaxReportDelay(1000, {"from": whale})
-    with brownie.reverts():
+    with reverts():
         strategy.setRewards(strategist, {"from": whale})
-    with brownie.reverts():
-        strategy.setKeepCRV(10_001, {"from": gov})
 
-    # try a health check with zero address as health check
-    strategy.setHealthCheck(zero, {"from": gov})
+    # try a health check with ZERO_ADDRESS address as health check
+    strategy.setHealthCheck(ZERO_ADDRESS, {"from": gov})
     strategy.setDoHealthCheck(True, {"from": gov})
     strategy.harvest({"from": gov})
 
     # try a health check with random contract as health check
     strategy.setHealthCheck(gov, {"from": gov})
     strategy.setDoHealthCheck(True, {"from": gov})
-    # this is causing the RPC to crash now, weirdly
-    # with brownie.reverts():
-    # strategy.harvest({"from": gov})
+
 
     # set emergency exit last
     strategy.setEmergencyExit({"from": gov})
-    with brownie.reverts():
+    with reverts():
         strategy.setEmergencyExit({"from": gov})

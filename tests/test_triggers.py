@@ -1,6 +1,3 @@
-import brownie
-from brownie import Contract
-from brownie import config
 import math
 
 
@@ -17,17 +14,12 @@ def test_triggers(
 ):
     ## deposit to the vault after approving
     startingWhale = token.balanceOf(whale)
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
-    newWhale = token.balanceOf(whale)
-    starting_assets = vault.totalAssets()
+
     chain.sleep(1)
     strategy.harvest({"from": gov})
     chain.sleep(1)
-
-    # simulate a day of earnings
-    chain.sleep(86400)
-    chain.mine(1)
 
     # harvest should trigger false; hasn't been long enough
     tx = strategy.harvestTrigger(0, {"from": gov})
@@ -55,7 +47,9 @@ def test_triggers(
     # withdraw and confirm we made money
     strategy.harvest({"from": gov})
     vault.withdraw({"from": whale})
-    assert token.balanceOf(whale) >= startingWhale
+    assert token.balanceOf(whale) >= startingWhale or math.isclose(
+        token.balanceOf(whale), startingWhale, abs_tol=5
+    )
 
 
 def test_less_useful_triggers(
@@ -70,11 +64,9 @@ def test_less_useful_triggers(
     amount,
 ):
     ## deposit to the vault after approving
-    startingWhale = token.balanceOf(whale)
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
-    newWhale = token.balanceOf(whale)
-    starting_assets = vault.totalAssets()
+
     chain.sleep(1)
     strategy.harvest({"from": gov})
     chain.sleep(1)

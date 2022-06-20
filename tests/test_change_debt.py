@@ -1,7 +1,5 @@
-import brownie
-from brownie import Contract
-from brownie import config
 import math
+from scripts.utils import getSnapshot
 
 # test passes as of 21-06-26
 def test_change_debt(
@@ -13,13 +11,19 @@ def test_change_debt(
     strategy,
     chain,
     amount,
+    gauge,
+    gaugeFactory,
+    gno,
+    crv,
 ):
+
     ## deposit to the vault after approving
     startingWhale = token.balanceOf(whale)
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
     chain.sleep(1)
     strategy.harvest({"from": gov})
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
     chain.sleep(1)
 
     # evaluate our current total assets
@@ -31,8 +35,19 @@ def test_change_debt(
     vault.updateStrategyDebtRatio(strategy, currentDebt / 2, {"from": gov})
     # sleep for a day to make sure we are swapping enough (Uni v3 combined with only 6 decimals)
     chain.sleep(86400)
+    chain.mine(1)
+
+    # Validate that the gauge is rewarding CRV and GNO
+    assert gauge.claimable_tokens.call(strategy, {"from": strategy}) > 0, "No CRV"
+    assert gauge.claimable_reward.call(strategy, gno, {"from": strategy}) > 0, "No GNO"
+
     strategy.harvest({"from": gov})
     chain.sleep(1)
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
+
+    # Validate that we claim CRV and GNO
+    assert crv.balanceOf(strategy) > 0, "No CRV"
+    assert gno.balanceOf(strategy) > 0, "No GNO"
 
     assert strategy.estimatedTotalAssets() <= startingStrategy
 
@@ -45,6 +60,7 @@ def test_change_debt(
     chain.sleep(1)
     strategy.harvest({"from": gov})
     chain.sleep(1)
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
 
     # evaluate our current total assets
     new_assets = vault.totalAssets()
@@ -58,4 +74,6 @@ def test_change_debt(
 
     # withdraw and confirm our whale made money
     vault.withdraw({"from": whale})
-    assert token.balanceOf(whale) >= startingWhale
+    assert token.balanceOf(whale) >= startingWhale or math.isclose(
+        token.balanceOf(whale), startingWhale, abs_tol=5
+    )

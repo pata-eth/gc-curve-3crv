@@ -1,7 +1,4 @@
-import brownie
-from brownie import Contract
-from brownie import config
-import math
+from scripts.utils import getSnapshot
 
 
 def test_base_strategy(
@@ -13,12 +10,14 @@ def test_base_strategy(
     strategy,
     chain,
     amount,
+    crv,
+    gno,
+    gauge,
+    gaugeFactory,
 ):
     ## deposit to the vault after approving
-    startingWhale = token.balanceOf(whale)
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
-    newWhale = token.balanceOf(whale)
 
     # test our harvestTrigger for when we have a profit (don't normally need this)
     # our whale donates dust to the vault, what a nice person!
@@ -27,9 +26,9 @@ def test_base_strategy(
     chain.sleep(86400 * 4)  # fast forward so our min delay is passed
     chain.mine(1)
 
-    tx = strategy.harvestTrigger(0, {"from": gov})
-    print("\nShould we harvest? Should be true.", tx)
-    assert tx == True
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
+
+    assert strategy.harvestTrigger(0, {"from": gov}), "This must have been TRUE"
 
     # test all of our random shit
     strategy.doHealthCheck()

@@ -1,7 +1,6 @@
 import brownie
-from brownie import Contract
-from brownie import config
 import math
+from scripts.utils import getSnapshot
 
 
 def test_revoke_strategy_from_vault(
@@ -12,11 +11,15 @@ def test_revoke_strategy_from_vault(
     chain,
     strategy,
     amount,
+    crv,
+    gno,
+    gauge,
+    gaugeFactory,
 ):
 
     ## deposit to the vault after approving
     startingWhale = token.balanceOf(whale)
-    token.approve(vault, 2 ** 256 - 1, {"from": whale})
+    token.approve(vault, 2**256 - 1, {"from": whale})
     vault.deposit(amount, {"from": whale})
     chain.sleep(1)
     strategy.harvest({"from": gov})
@@ -28,12 +31,16 @@ def test_revoke_strategy_from_vault(
     vaultAssets_starting = vault.totalAssets()
     vault_holdings_starting = token.balanceOf(vault)
     strategy_starting = strategy.estimatedTotalAssets()
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
     vault.revokeStrategy(strategy.address, {"from": gov})
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
 
     chain.sleep(1)
     strategy.harvest({"from": gov})
     chain.sleep(1)
     vaultAssets_after_revoke = vault.totalAssets()
+
+    getSnapshot(vault, strategy, crv, gno, gauge, gaugeFactory)
 
     # confirm we made money, or at least that we have about the same
     assert vaultAssets_after_revoke >= vaultAssets_starting or math.isclose(
@@ -48,4 +55,6 @@ def test_revoke_strategy_from_vault(
 
     # withdraw and confirm we made money
     vault.withdraw({"from": whale})
-    assert token.balanceOf(whale) >= startingWhale
+    assert token.balanceOf(whale) >= startingWhale or math.isclose(
+        token.balanceOf(whale), startingWhale, abs_tol=5
+    )
